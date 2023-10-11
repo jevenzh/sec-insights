@@ -13,6 +13,20 @@ migrate:
 	docker compose create db
 	docker compose start db
 	poetry run python -m alembic upgrade head
+	# workaround for having PGVector create its tables
+	poetry run python -m scripts.build_vector_tables
+
+refresh_db:
+	# First ask for confirmation.
+	@echo -n "Are you sure you want to refresh the local database? This will delete all data in your local db. [Y/n] "; \
+	read ans; \
+	if [ $${ans:-'N'} = 'Y' ]; then make confirmed_refresh_db; else echo "Aborting."; fi
+
+confirmed_refresh_db:
+	echo "Refreshing database."
+	docker compose down db
+	docker volume rm backend_postgres_data
+	make migrate
 
 test:
 	poetry run python -m pytest tests/
@@ -24,7 +38,11 @@ setup_localstack:
 	docker compose create localstack
 	docker compose start localstack
 	echo "Waiting for localstack to start..."
-	sleep 3
+	# Ping http://localhost:4566/health until we get a 200 response
+	until $$(curl --output /dev/null --silent --head --fail http://localhost:4566/health); do \
+		printf '.'; \
+		sleep 0.5; \
+	done
 	# Check that S3_ASSET_BUCKET_NAME is set
 	if [ -z ${S3_ASSET_BUCKET_NAME} ]; then \
 		echo "S3_ASSET_BUCKET_NAME is not set. Please set it and try again."; \
